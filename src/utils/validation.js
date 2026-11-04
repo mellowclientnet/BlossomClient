@@ -7,17 +7,17 @@ export function validateString(value, fieldName = 'string', maxLength = 2000) {
     logger.warn(`[VALIDATION] ${fieldName} must be a string, got ${typeof value}`);
     return null;
   }
-  
+
   if (value.length === 0) {
     logger.warn(`[VALIDATION] ${fieldName} cannot be empty`);
     return null;
   }
-  
+
   if (value.length > maxLength) {
     logger.warn(`[VALIDATION] ${fieldName} exceeds maximum length of ${maxLength}`);
     return value.substring(0, maxLength);
   }
-  
+
   return value;
 }
 
@@ -26,12 +26,12 @@ export function validateNumber(value, fieldName = 'number') {
     logger.warn(`[VALIDATION] ${fieldName} must be a valid number, got ${value}`);
     return null;
   }
-  
+
   if (value < 0) {
     logger.warn(`[VALIDATION] ${fieldName} cannot be negative`);
     return null;
   }
-  
+
   return value;
 }
 
@@ -45,7 +45,7 @@ export function validateDiscordId(value, fieldName = 'ID') {
     logger.warn(`[VALIDATION] Invalid ${fieldName} format`);
     return null;
   }
-  
+
   return value;
 }
 
@@ -54,17 +54,17 @@ export function validateCustomId(value, fieldName = 'customId') {
     logger.warn(`[VALIDATION] ${fieldName} must be a non-empty string`);
     return null;
   }
-  
+
   if (value.length > 100) {
     logger.warn(`[VALIDATION] ${fieldName} exceeds maximum length of 100`);
     return null;
   }
-  
+
   if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
     logger.warn(`[VALIDATION] ${fieldName} contains invalid characters`);
     return null;
   }
-  
+
   return value;
 }
 
@@ -73,14 +73,14 @@ export function validateRequiredProps(obj, requiredProps, objName = 'object') {
     logger.warn(`[VALIDATION] ${objName} must be an object`);
     return false;
   }
-  
+
   const missing = requiredProps.filter(prop => !(prop in obj));
-  
+
   if (missing.length > 0) {
     logger.warn(`[VALIDATION] ${objName} missing required properties: ${missing.join(', ')}`);
     return false;
   }
-  
+
   return true;
 }
 
@@ -89,7 +89,7 @@ export function validateUrl(value, fieldName = 'URL') {
     logger.warn(`[VALIDATION] ${fieldName} must be a non-empty string`);
     return null;
   }
-  
+
   try {
     new URL(value);
     return value;
@@ -104,12 +104,12 @@ export function validateRange(value, min, max, fieldName = 'value') {
     logger.warn(`[VALIDATION] ${fieldName} must be a number`);
     return null;
   }
-  
+
   if (value < min || value > max) {
     logger.warn(`[VALIDATION] ${fieldName} must be between ${min} and ${max}`);
     return null;
   }
-  
+
   return value;
 }
 
@@ -118,13 +118,13 @@ export function validateEnum(value, allowedValues, fieldName = 'value') {
     logger.warn(`[VALIDATION] ${fieldName} must be one of: ${allowedValues.join(', ')}`);
     return null;
   }
-  
+
   return value;
 }
 
 export function sanitizeMarkdown(text) {
   if (typeof text !== 'string') return '';
-  
+
   return text
     .replace(/\*/g, '\\*')
     .replace(/_/g, '\\_')
@@ -137,11 +137,12 @@ export function sanitizeMarkdown(text) {
 
 export function sanitizeInput(input, maxLength = 2000) {
   if (typeof input !== 'string') return '';
-  
+
   return input
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
     .trim()
-    .substring(0, maxLength)
-    .replace(/[\x00-\x1F\x7F]/g, '');
+    .substring(0, maxLength);
 }
 
 export function sanitizeMention(mention) {
@@ -151,7 +152,7 @@ export function sanitizeMention(mention) {
 
 export function escapeHtml(text) {
   if (typeof text !== 'string') return '';
-  
+
   const map = {
     '&': '&amp;',
     '<': '&lt;',
@@ -159,7 +160,7 @@ export function escapeHtml(text) {
     '"': '&quot;',
     "'": '&#039;'
   };
-  
+
   return text.replace(/[&<>"']/g, char => map[char]);
 }
 
