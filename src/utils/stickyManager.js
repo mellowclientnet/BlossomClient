@@ -1,11 +1,11 @@
-// stickyManager.js — shared logic for the /stickynote command and the messageCreate handler.
+// stickyManager.js — shared logic for the /sticky note command and the messageCreate handler.
 //
 // Everything that reads or changes a channel's sticky note runs under one lock per
 // channel, so a burst of messages can't post duplicate stickies and a late message
 // handler can't bring back a note that was just removed.
 
 import { PermissionFlagsBits } from 'discord.js';
-import { getFromDb, setInDb, deleteFromDb } from './database.js';
+import { db, getFromDb, setInDb, deleteFromDb } from './database.js';
 import { Mutex } from './mutex.js';
 import { logger } from './logger.js';
 
@@ -59,6 +59,31 @@ export async function getSticky(guildId, channelId) {
 }
 
 /**
+ * Every sticky note saved in a server.
+ * Resolves to [{ channelId, content }].
+ */
+export async function listStickies(guildId) {
+    const prefix = `stickynote:${guildId}:`;
+
+    let keys = await db.list(prefix);
+    if (!Array.isArray(keys)) {
+        keys = keys && typeof keys === 'object' ? Object.keys(keys) : [];
+    }
+
+    const notes = [];
+    for (const key of keys) {
+        if (!key.startsWith(prefix)) continue;
+
+        const sticky = await getFromDb(key, null);
+        if (sticky?.content) {
+            notes.push({ channelId: key.slice(prefix.length), content: sticky.content });
+        }
+    }
+
+    return notes;
+}
+
+/**
  * Saves the sticky note for a channel and posts it right away, replacing the old
  * sticky message if there was one.
  * Resolves to { saved, posted }.
@@ -79,7 +104,7 @@ export async function setSticky(channel, guildId, content) {
             await postSticky(channel, key, sticky);
             return { saved: true, posted: true };
         } catch (error) {
-            logger.error('Error posting sticky note after /stickynote set:', error);
+            logger.error('Error posting sticky note after /sticky note set:', error);
             return { saved: true, posted: false };
         }
     });

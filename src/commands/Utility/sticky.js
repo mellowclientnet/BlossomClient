@@ -6,18 +6,22 @@ import {
 } from 'discord.js';
 
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { createEmbed } from '../../utils/embeds.js';
 
 import {
-    getSticky,
     setSticky,
-    removeSticky
+    removeSticky,
+    listStickies
 } from '../../utils/stickyManager.js';
 
 const MAX_NOTE_LENGTH = 2000;
+const MAX_LIST_ENTRIES = 25;
+const PREVIEW_LENGTH = 80;
 
-// Prefix commands (e.g. !stickynote set ...) split arguments on spaces and treat
+// Prefix commands (e.g. !sticky note set ...) split arguments on spaces and treat
 // ' and " as quote marks, so "Don't spam" would be saved as just "Don". Read the
 // text from the original message instead so the note is saved exactly as typed.
+// The message looks like: <prefix>sticky note set <text>
 function getNoteText(interaction) {
     const parsed = interaction.options.getString('message') ?? '';
 
@@ -26,40 +30,53 @@ function getNoteText(interaction) {
     }
 
     const raw = interaction._responseCoordinator?.message?.content;
-    const match = raw?.match(/^\s*\S+\s+\S+\s+([\s\S]+)$/);
+    const match = raw?.match(/^\s*\S+\s+\S+\s+\S+\s+([\s\S]+)$/);
 
     return match ? match[1] : parsed;
 }
 
+function preview(content) {
+    const oneLine = content.replace(/\s+/g, ' ').trim();
+    return oneLine.length > PREVIEW_LENGTH
+        ? `${oneLine.slice(0, PREVIEW_LENGTH - 1)}…`
+        : oneLine;
+}
+
 export default {
     data: new SlashCommandBuilder()
-        .setName('stickynote')
-        .setDescription('Manage the sticky note in this channel')
+        .setName('sticky')
+        .setDescription('Manage sticky notes in this server')
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
 
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('set')
-                .setDescription('Set this channel sticky note')
-                .addStringOption(option =>
-                    option
-                        .setName('message')
-                        .setDescription('The message to keep visible')
-                        .setRequired(true)
-                        .setMaxLength(2000)
+        .addSubcommandGroup(group =>
+            group
+                .setName('note')
+                .setDescription('Manage sticky notes')
+
+                .addSubcommand(subcommand =>
+                    subcommand
+                        .setName('set')
+                        .setDescription('Set this channel sticky note')
+                        .addStringOption(option =>
+                            option
+                                .setName('message')
+                                .setDescription('The message to keep visible')
+                                .setRequired(true)
+                                .setMaxLength(2000)
+                        )
                 )
-        )
 
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('remove')
-                .setDescription('Remove this channel sticky note')
-        )
+                .addSubcommand(subcommand =>
+                    subcommand
+                        .setName('remove')
+                        .setDescription('Remove this channel sticky note')
+                )
 
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('view')
-                .setDescription('View this channel sticky note')
+                .addSubcommand(subcommand =>
+                    subcommand
+                        .setName('list')
+                        .setDescription('List all active sticky notes in this server')
+                )
         ),
 
     async execute(interaction, config, client) {
@@ -133,13 +150,37 @@ export default {
             });
         }
 
-        if (subcommand === 'view') {
-            const sticky = await getSticky(guildId, channel.id);
+        if (subcommand === 'list') {
+            const notes = await listStickies(guildId);
+
+            // Only show notes whose channel still exists.
+            const active = [];
+            for (const note of notes) {
+                const noteChannel = interaction.guild.channels.cache.get(note.channelId)
+                    ?? await interaction.guild.channels.fetch(note.channelId).catch(() => null);
+
+                if (noteChannel) active.push(note);
+            }
+
+            if (active.length === 0) {
+                return InteractionHelper.safeEditReply(interaction, {
+                    content: 'There are no active sticky notes in this server.'
+                });
+            }
+
+            const shown = active.slice(0, MAX_LIST_ENTRIES);
+            const lines = shown.map(note => `<#${note.channelId}> — ${preview(note.content)}`);
+
+            if (active.length > shown.length) {
+                lines.push(`…and ${active.length - shown.length} more`);
+            }
 
             return InteractionHelper.safeEditReply(interaction, {
-                content: sticky
-                    ? `📌 **Current sticky note:**\n${sticky.content}`
-                    : 'There is no sticky note in this channel.',
+                embeds: [createEmbed({
+                    title: `📌 Active sticky notes (${active.length})`,
+                    description: lines.join('\n'),
+                    color: 'info'
+                })],
                 allowedMentions: { parse: [] }
             });
         }
