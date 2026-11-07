@@ -5,14 +5,31 @@ import {
     MessageFlags
 } from 'discord.js';
 
-import {
-    getFromDb,
-    setInDb,
-    deleteFromDb
-} from '../../utils/database.js';
+import { InteractionHelper } from '../../utils/interactionHelper.js';
 
-const getStickyKey = (guildId, channelId) =>
-    `stickynote:${guildId}:${channelId}`;
+import {
+    getSticky,
+    setSticky,
+    removeSticky
+} from '../../utils/stickyManager.js';
+
+const MAX_NOTE_LENGTH = 2000;
+
+// Prefix commands (e.g. !stickynote set ...) split arguments on spaces and treat
+// ' and " as quote marks, so "Don't spam" would be saved as just "Don". Read the
+// text from the original message instead so the note is saved exactly as typed.
+function getNoteText(interaction) {
+    const parsed = interaction.options.getString('message') ?? '';
+
+    if (!interaction._isPrefixCommand) {
+        return parsed;
+    }
+
+    const raw = interaction._responseCoordinator?.message?.content;
+    const match = raw?.match(/^\s*\S+\s+\S+\s+([\s\S]+)$/);
+
+    return match ? match[1] : parsed;
+}
 
 export default {
     data: new SlashCommandBuilder()
@@ -60,60 +77,70 @@ export default {
             });
         }
 
-        const subcommand = interaction.options.getSubcommand();
-        const key = getStickyKey(
-            interaction.guild.id,
-            interaction.channel.id
-        );
+        // Setting a note also posts it, which can take longer than the 3 seconds
+        // Discord allows for a first reply, so acknowledge the command right away.
+        const deferred = await InteractionHelper.safeDefer(interaction, {
+            flags: MessageFlags.Ephemeral
+        });
+        if (!deferred) return;
 
-        if (subcommand === 'set') {
-            const content = interaction.options.getString('message');
+        const channel = interaction.channel
+            ?? await interaction.guild.channels.fetch(interaction.channelId).catch(() => null);
 
-            const saved = await setInDb(key, {
-                content,
-                messageId: null
-            });
-
-            return interaction.reply({
-                content: saved
-                    ? '📌 Sticky note saved for this channel!'
-                    : 'Failed to save the sticky note.',
-                flags: MessageFlags.Ephemeral
+        if (!channel) {
+            return InteractionHelper.safeEditReply(interaction, {
+                content: 'I could not access this channel.'
             });
         }
 
-        if (subcommand === 'remove') {
-            const existing = await getFromDb(key, null);
+        const subcommand = interaction.options.getSubcommand();
+        const guildId = interaction.guild.id;
 
-            if (!existing) {
-                return interaction.reply({
-                    content: 'There is no sticky note in this channel.',
-                    flags: MessageFlags.Ephemeral
+        if (subcommand === 'set') {
+            const content = getNoteText(interaction).trim();
+
+            if (!content) {
+                return InteractionHelper.safeEditReply(interaction, {
+                    content: 'Please provide a message for the sticky note.'
                 });
             }
 
-            if (existing.messageId) {
-                await interaction.channel.messages
-                    .delete(existing.messageId)
-                    .catch(() => {});
+            if (content.length > MAX_NOTE_LENGTH) {
+                return InteractionHelper.safeEditReply(interaction, {
+                    content: `Sticky notes can be at most ${MAX_NOTE_LENGTH} characters long.`
+                });
             }
 
-            await deleteFromDb(key);
+            const { saved, posted } = await setSticky(channel, guildId, content);
 
-            return interaction.reply({
-                content: '🗑️ Sticky note removed!',
-                flags: MessageFlags.Ephemeral
+            let reply = '📌 Sticky note saved for this channel!';
+            if (!saved) {
+                reply = 'Failed to save the sticky note.';
+            } else if (!posted) {
+                reply = '📌 Sticky note saved, but I could not post it. Make sure I have View Channel and Send Messages in this channel.';
+            }
+
+            return InteractionHelper.safeEditReply(interaction, { content: reply });
+        }
+
+        if (subcommand === 'remove') {
+            const removed = await removeSticky(channel, guildId);
+
+            return InteractionHelper.safeEditReply(interaction, {
+                content: removed
+                    ? '🗑️ Sticky note removed!'
+                    : 'There is no sticky note in this channel.'
             });
         }
 
         if (subcommand === 'view') {
-            const sticky = await getFromDb(key, null);
+            const sticky = await getSticky(guildId, channel.id);
 
-            return interaction.reply({
+            return InteractionHelper.safeEditReply(interaction, {
                 content: sticky
                     ? `📌 **Current sticky note:**\n${sticky.content}`
                     : 'There is no sticky note in this channel.',
-                flags: MessageFlags.Ephemeral
+                allowedMentions: { parse: [] }
             });
         }
     }

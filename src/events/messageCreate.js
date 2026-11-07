@@ -1,8 +1,5 @@
 import { Events } from 'discord.js';
-import {
-  getFromDb,
-  setInDb
-} from '../utils/database.js';
+import { refreshSticky } from '../utils/stickyManager.js';
 import { logger } from '../utils/logger.js';
 import { getLevelingConfig, getUserLevelData } from '../services/leveling/leveling.js';
 import { addXp } from '../services/leveling/xpSystem.js';
@@ -258,33 +255,7 @@ async function handleLeveling(message, client) {
 
 async function handleStickyNote(message, client) {
   try {
-    const key = `stickynote:${message.guild.id}:${message.channel.id}`;
-
-    const sticky = await getFromDb(key, null);
-
-    if (!sticky || !sticky.content) return;
-
-    // Delete the previous sticky message
-    if (sticky.messageId) {
-      await message.channel.messages
-        .delete(sticky.messageId)
-        .catch(() => {});
-    }
-
-    // Post the sticky note again
-    const newSticky = await message.channel.send({
-      content: sticky.content,
-      allowedMentions: {
-        parse: []
-      }
-    });
-
-    // Save the new message ID
-    await setInDb(key, {
-      content: sticky.content,
-      messageId: newSticky.id
-    });
-
+    await refreshSticky(message);
   } catch (error) {
     logger.error('Error handling sticky note:', error);
   }
